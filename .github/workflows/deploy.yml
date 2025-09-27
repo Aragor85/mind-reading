@@ -40,7 +40,7 @@ jobs:
           source $(conda info --base)/etc/profile.d/conda.sh
           conda activate ${{ env.CONDA_ENV_NAME }}
           pip install --upgrade pip setuptools wheel
-          pip install azure-functions
+          pip install azure-functions requests
 
       - name: Vendor site-packages for Azure Functions
         shell: bash -l {0}
@@ -57,7 +57,8 @@ jobs:
           test -f host.json || echo '{"version":"2.0"}' > host.json
 
       - name: Zip artifact including .python_packages
-        run: zip -r release.zip . -x "venv/*" ".git/*" ".github/*" "__pycache__/*"
+        run: |
+          zip -r release.zip . -x "venv/*" ".git/*" ".github/*" "__pycache__/*"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -78,23 +79,11 @@ jobs:
         with:
           name: python-app
 
-      - name: Unzip artifact
-        run: |
-          unzip release.zip -d release
-          ls -la release | head -n 20
-
-      - name: Login to Azure
-        uses: azure/login@v2
-        with:
-          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_A18FFB99F74747918B8B1F61F9F5BC57 }}
-          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_84AF985AA15B4F938C9F18812F55C45E }}
-          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_CEB63CECFBEA4C768EBADE1D8D3AE52B }}
-
       - name: Deploy to Azure Functions (zip)
         uses: Azure/functions-action@v1
         with:
           app-name: 'mind-reading-func'
-          package: 'release'
+          package: 'release.zip'
 
       - name: Stream Function App logs (60s)
         if: always()
@@ -102,7 +91,7 @@ jobs:
         with:
           inlineScript: |
             echo "📡 Streaming logs for 60s..."
-            az webapp log tail \
+            az functionapp log tail \
               --name mind-reading-func \
               --resource-group mind-reading-rg \
               --subscription eb9d2d7a-5726-4c73-9b94-9eb4cf6281b6 &

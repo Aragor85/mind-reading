@@ -6,39 +6,40 @@ import azure.functions as func
 import os
 import pandas as pd
 import requests
+from io import BytesIO
 
 # URLs vers tes blobs
 URL_CONTENT = "https://mindreadingstorage.blob.core.windows.net/similaritycosinussurembeddingspca40/recommendations_vectorized.pkl"
 URL_SURPRISE = "https://mindreadingstorage.blob.core.windows.net/surprisesvdmodel/surprise_svd_model_all_3.pkl"
 
-# Répertoire temporaire dans Azure Functions pour stocker blob 
+# Répertoire temporaire pour cache
 TMP_DIR = "/tmp"
 CONTENT_PATH = os.path.join(TMP_DIR, "content.pkl")
 SURPRISE_PATH = os.path.join(TMP_DIR, "surprise.pkl")
 
 def download_file(url, dest_path):
-    """Télécharger un fichier depuis un blob vers /tmp"""
+    """Télécharger un fichier depuis un blob vers /tmp (si pas déjà en cache)"""
     if not os.path.exists(dest_path):
-        logging.info(f"Téléchargement du modèle depuis {url} ...")
+        logging.info(f"⬇️ Téléchargement du modèle depuis {url} ...")
         resp = requests.get(url)
         resp.raise_for_status()
         with open(dest_path, "wb") as f:
             f.write(resp.content)
         logging.info(f"✅ Fichier sauvegardé dans {dest_path}")
     else:
-        logging.info(f"⚡ Fichier déjà en cache : {dest_path}")
+        logging.info(f"⚡ Fichier déjà présent : {dest_path}")
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
     logging.info("Mind Reading recommender triggered (cloud mode).")
 
+    # --- Récupération du user_id ---
     user_id = req.params.get("user_id")
     if not user_id:
         try:
             req_body = req.get_json()
         except ValueError:
-            pass
-        else:
-            user_id = req_body.get("user_id")
+            req_body = {}
+        user_id = req_body.get("user_id")
 
     if not user_id:
         return func.HttpResponse(
@@ -47,17 +48,19 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         )
 
     try:
-        # === 1. Télécharger les modèles si nécessaire ===
+        # === 1. Télécharger les fichiers si nécessaire ===
+        os.makedirs(TMP_DIR, exist_ok=True)
         download_file(URL_CONTENT, CONTENT_PATH)
         download_file(URL_SURPRISE, SURPRISE_PATH)
 
         # === 2. Charger les modèles ===
         content_df = joblib.load(CONTENT_PATH)  # DataFrame
-        svd_model = pickle.load(open(SURPRISE_PATH, "rb"))  # SVD
+        with open(SURPRISE_PATH, "rb") as f:
+            svd_model = pickle.load(f)  # objet SVD
 
-        logging.info("✅ Modèles chargés depuis le blob")
+        logging.info("✅ Modèles chargés depuis Azure Blob Storage")
 
-        # === 3. Recommandations content-based ===
+        # === 3. Content-based ===
         content_recs = (
             content_df[content_df["user_id"] == int(user_id)]
             .sort_values("similarity", ascending=False)
@@ -65,12 +68,15 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
             .reset_index(drop=True)
         )
 
-        # === 4. Recommandations collaborative (Surprise) ===
-        all_items = content_df["article_id"].unique()[:200]  # sous-ensemble pour tester
+        # === 4. Collaborative (SVD.predict) ===
+        all_items = content_df["article_id"].unique()[:500]  # limiter pour perf
         predictions = []
         for iid in all_items:
-            pred = svd_model.predict(int(user_id), int(iid))
-            predictions.append((iid, pred.est))
+            try:
+                pred = svd_model.predict(int(user_id), int(iid))
+                predictions.append((iid, pred.est))
+            except Exception as ex:
+                logging.warning(f"skip item {iid}: {ex}")
 
         surprise_recs = (
             pd.DataFrame(predictions, columns=["article_id", "pred_score"])
@@ -90,7 +96,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         return func.HttpResponse(
             body=json.dumps(result),
             status_code=200,
-            mimetype="application/json"
+            mimetype="application/json",
         )
 
     except Exception as e:
