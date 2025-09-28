@@ -102,10 +102,10 @@ jobs:
         with:
           inlineScript: |
             echo "📡 Streaming logs for 60s..."
-            az functionapp log stream \
-              --name mind-reading-func \
-              --resource-group mind-reading-rg \
-              --subscription eb9d2d7a-5726-4c73-9b94-9eb4cf6281b6 &
+            az functionapp log tail \
+            --name mind-reading-func \
+            --resource-group mind-reading-rg \
+            --subscription eb9d2d7a-5726-4c73-9b94-9eb4cf6281b6
             PID=$!
             sleep 60
             kill $PID || true
