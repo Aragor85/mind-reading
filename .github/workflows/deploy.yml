@@ -10,7 +10,7 @@ env:
   PYTHON_VERSION: '3.10'
   CONDA_ENV_NAME: 'mindenv'
 
-jobs:
+    jobs:
     build:
     runs-on: ubuntu-latest
     permissions:
