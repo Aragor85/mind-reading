@@ -1,4 +1,4 @@
-name: Build & Deploy (Ubuntu + Conda vendor + Logs) - mind-reading-func
+name: Build & Deploy (Azure Functions Python 3.10)
 
 on:
   push:
@@ -8,55 +8,29 @@ on:
 env:
   AZURE_FUNCTIONAPP_PACKAGE_PATH: '.'
   PYTHON_VERSION: '3.10'
-  CONDA_ENV_NAME: 'mindenv'
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Setup Miniconda (setup mamba)
-        uses: conda-incubator/setup-miniconda@v2
+      - name: Set up Python
+        uses: actions/setup-python@v4
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-          auto-activate-base: false
 
-      - name: Install mamba
-        run: conda install -n base -c conda-forge mamba -y
-
-      - name: Create conda env from environment.yml
+      - name: Install dependencies
         run: |
-          mamba env create -f environment.yml -n ${{ env.CONDA_ENV_NAME }}
-          echo "✅ Conda environment created"
-
-      - name: Activate env and install pip-only packages
-        shell: bash -l {0}
-        run: |
-          source $(conda info --base)/etc/profile.d/conda.sh
-          conda activate ${{ env.CONDA_ENV_NAME }}
-          pip install --upgrade pip setuptools wheel
-          pip install azure-functions
-
-      - name: Vendor site-packages for Azure Functions
-        shell: bash -l {0}
-        run: |
-          source $(conda info --base)/etc/profile.d/conda.sh
-          conda activate ${{ env.CONDA_ENV_NAME }}
-          PY_SITE=$(python -c "import site; print(site.getsitepackages()[0])")
-          mkdir -p .python_packages/lib/site-packages
-          rsync -a --exclude='__pycache__' "$PY_SITE/" .python_packages/lib/site-packages/
-          echo "✅ Vendored Python packages"
+          python -m pip install --upgrade pip setuptools wheel
+          pip install -r requirements.txt
 
       - name: Prepare host.json
         run: |
           test -f host.json || echo '{"version":"2.0"}' > host.json
 
-      - name: Zip artifact including .python_packages
+      - name: Zip artifact
         run: zip -r release.zip . -x "venv/*" ".git/*" ".github/*" "__pycache__/*"
 
       - name: Upload artifact
@@ -79,9 +53,7 @@ jobs:
           name: python-app
 
       - name: Unzip artifact
-        run: |
-          unzip release.zip -d release
-          ls -la release | head -n 20
+        run: unzip release.zip -d release
 
       - name: Login to Azure
         uses: azure/login@v2
@@ -90,11 +62,11 @@ jobs:
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_84AF985AA15B4F938C9F18812F55C45E }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_CEB63CECFBEA4C768EBADE1D8D3AE52B }}
 
-      - name: Deploy to Azure Functions (zip)
+      - name: Deploy to Azure Functions
         uses: Azure/functions-action@v1
         with:
           app-name: 'mind-reading-func'
-          package: 'release' 
+          package: 'release'
 
       - name: Test Function endpoint
         run: |
