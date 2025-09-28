@@ -95,12 +95,15 @@ jobs:
         with:
           app-name: 'mind-reading-func'
           package: 'release' 
+
       - name: Test Function endpoint
         run: |
           echo "🚀 Testing deployed Azure Function..."
           RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}\n" "https://mind-reading-func.azurewebsites.net/api/recommend?user_id=1")
           echo "$RESPONSE"
+          BODY=$(echo "$RESPONSE" | sed '/HTTP_STATUS/d')
           STATUS=$(echo "$RESPONSE" | grep HTTP_STATUS | cut -d: -f2)
+          echo "📦 Response body: $BODY"
           if [ "$STATUS" -ne 200 ]; then
             echo "❌ Function test failed (status $STATUS)"
             exit 1
