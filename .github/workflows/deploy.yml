@@ -1,3 +1,70 @@
+name: Build & Deploy (Ubuntu + Conda vendor + Logs) - mind-reading-func
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  AZURE_FUNCTIONAPP_PACKAGE_PATH: '.'
+  PYTHON_VERSION: '3.10'
+  CONDA_ENV_NAME: 'mindenv'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Miniconda (setup mamba)
+        uses: conda-incubator/setup-miniconda@v2
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          auto-activate-base: false
+
+      - name: Install mamba
+        run: conda install -n base -c conda-forge mamba -y
+
+      - name: Create conda env from environment.yml
+        run: |
+          mamba env create -f environment.yml -n ${{ env.CONDA_ENV_NAME }}
+          echo "✅ Conda environment created"
+
+      - name: Activate env and install pip-only packages
+        shell: bash -l {0}
+        run: |
+          source $(conda info --base)/etc/profile.d/conda.sh
+          conda activate ${{ env.CONDA_ENV_NAME }}
+          pip install --upgrade pip setuptools wheel
+          pip install azure-functions
+
+      - name: Vendor site-packages for Azure Functions
+        shell: bash -l {0}
+        run: |
+          source $(conda info --base)/etc/profile.d/conda.sh
+          conda activate ${{ env.CONDA_ENV_NAME }}
+          PY_SITE=$(python -c "import site; print(site.getsitepackages()[0])")
+          mkdir -p .python_packages/lib/site-packages
+          rsync -a --exclude='__pycache__' "$PY_SITE/" .python_packages/lib/site-packages/
+          echo "✅ Vendored Python packages"
+
+      - name: Prepare host.json
+        run: |
+          test -f host.json || echo '{"version":"2.0"}' > host.json
+
+      - name: Zip artifact including .python_packages
+        run: zip -r release.zip . -x "venv/*" ".git/*" ".github/*" "__pycache__/*"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-app
+          path: release.zip
+
   deploy:
     runs-on: ubuntu-latest
     needs: build
@@ -31,18 +98,23 @@
 
       - name: Update Azure CLI to latest
         run: |
-          echo "⬆️ Updating Azure CLI to latest version..."
-          curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+            echo "⬆️ Updating Azure CLI to latest version..."
+            curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
 
-      - name: Stream Function App logs (60s)
+     -  name: Stream Function App logs (60s)
         if: always()
         uses: azure/CLI@v1
         with:
           inlineScript: |
             echo "📡 Streaming logs for 60s..."
             az functionapp log tail \
-              --name mind-reading-func \
-              --resource-group mind-reading-rg
+            --name mind-reading-func \
+            --resource-group mind-reading-rg \
+            --subscription eb9d2d7a-5726-4c73-9b94-9eb4cf6281b6
+            PID=$!
+            sleep 60
+            kill $PID || true
+
 
       - name: Test Function endpoint
         run: |
