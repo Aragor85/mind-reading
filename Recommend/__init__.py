@@ -13,7 +13,7 @@ import json
 URL_CONTENT = "https://mindreadingstorage.blob.core.windows.net/similaritycosinussurembeddingspca40/recommendations_vectorized.pkl"
 URL_SURPRISE = "https://mindreadingstorage.blob.core.windows.net/surprisesvdmodel/surprise_svd_model_all_3.pkl"
 
-# Répertoire temporaire dans Azure Functions pour stocker blob 
+# Répertoire temporaire dans Azure Functions pour stocker blob
 TMP_DIR = "/tmp"
 CONTENT_PATH = os.path.join(TMP_DIR, "content.pkl")
 SURPRISE_PATH = os.path.join(TMP_DIR, "surprise.pkl")
@@ -31,7 +31,6 @@ def download_file(url, dest_path):
         logging.info(f"✅ Fichier sauvegardé dans {dest_path}")
     else:
         logging.info(f"⚡ Fichier déjà en cache : {dest_path}")
-
 
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
@@ -58,12 +57,36 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         download_file(URL_SURPRISE, SURPRISE_PATH)
 
         # === 2. Charger les modèles ===
-        content_df = joblib.load(CONTENT_PATH)  # DataFrame
-        with open(SURPRISE_PATH, "rb") as f:
-        svd_model = pickle.load(f)  # SVD
+        # content_df attendu : pandas.DataFrame (récommandations pré-calculées)
+        try:
+            content_df = joblib.load(CONTENT_PATH)
+            logging.info(
+                f"Loaded content object: {type(content_df)}; shape={getattr(content_df, 'shape', None)}"
+            )
+        except Exception as ex:
+            logging.error(f"Failed to load content_df with joblib: {ex}")
+            raise
 
+        # svd_model attendu : instance Surprise SVD (ou équivalent)
+        svd_model = None
+        try:
+            svd_model = joblib.load(SURPRISE_PATH)
+            logging.info(f"Loaded surprise model via joblib: {type(svd_model)}")
+        except Exception as ex_joblib:
+            logging.warning(
+                f"joblib.load failed for surprise model: {ex_joblib} — trying pickle.load() as fallback"
+            )
+            try:
+                with open(SURPRISE_PATH, "rb") as f:
+                    svd_model = pickle.load(f)
+                logging.info(f"Loaded surprise model via pickle: {type(svd_model)}")
+            except Exception as ex_pickle:
+                logging.error(
+                    f"Failed to load surprise model with both joblib and pickle: "
+                    f"joblib_err={ex_joblib} pickle_err={ex_pickle}"
+                )
+                raise
         logging.info("✅ Modèles chargés depuis le blob")
-
 
         # === 3. Recommandations content-based ===
         content_recs = (
@@ -97,7 +120,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         return func.HttpResponse(
             body=json.dumps(result),
             status_code=200,
-            mimetype="application/json"
+            mimetype="application/json",
         )
 
     except Exception as e:
@@ -106,5 +129,5 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         return func.HttpResponse(
             body=json.dumps({"error": str(e), "traceback": tb}),
             status_code=500,
-            mimetype="application/json"
+            mimetype="application/json",
         )
