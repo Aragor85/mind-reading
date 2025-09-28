@@ -94,27 +94,7 @@ jobs:
         uses: Azure/functions-action@v1
         with:
           app-name: 'mind-reading-func'
-          package: 'release'
-
-      - name: Update Azure CLI to latest
-        run: |
-          echo "⬆️ Updating Azure CLI to latest version..."
-          curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
-
-      - name: Stream Function App logs (60s)
-        if: always()
-        uses: azure/CLI@v1
-        with:
-          inlineScript: |
-            echo "📡 Streaming logs for 60s..."
-            az functionapp log tail \
-              --name mind-reading-func \
-              --resource-group mind-reading-rg \
-              --subscription eb9d2d7a-5726-4c73-9b94-9eb4cf6281b6
-            PID=$!
-            sleep 60
-            kill $PID || true
-
+          package: 'release' 
       - name: Test Function endpoint
         run: |
           echo "🚀 Testing deployed Azure Function..."
