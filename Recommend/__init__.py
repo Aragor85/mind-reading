@@ -6,61 +6,45 @@ import azure.functions as func
 import os
 import pandas as pd
 import requests
-from io import BytesIO
+import traceback
+import json
 
-# URLs vers tes blobs
 URL_CONTENT = "https://mindreadingstorage.blob.core.windows.net/similaritycosinussurembeddingspca40/recommendations_vectorized.pkl"
 URL_SURPRISE = "https://mindreadingstorage.blob.core.windows.net/surprisesvdmodel/surprise_svd_model_all_3.pkl"
 
-# Répertoire temporaire pour cache
 TMP_DIR = "/tmp"
 CONTENT_PATH = os.path.join(TMP_DIR, "content.pkl")
 SURPRISE_PATH = os.path.join(TMP_DIR, "surprise.pkl")
 
 def download_file(url, dest_path):
-    """Télécharger un fichier depuis un blob vers /tmp (si pas déjà en cache)"""
     if not os.path.exists(dest_path):
-        logging.info(f"⬇️ Téléchargement du modèle depuis {url} ...")
         resp = requests.get(url)
         resp.raise_for_status()
         with open(dest_path, "wb") as f:
             f.write(resp.content)
-        logging.info(f"✅ Fichier sauvegardé dans {dest_path}")
-    else:
-        logging.info(f"⚡ Fichier déjà présent : {dest_path}")
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
-    logging.info("Mind Reading recommender triggered (cloud mode).")
-
-    # --- Récupération du user_id ---
-    user_id = req.params.get("user_id")
-    if not user_id:
-        try:
-            req_body = req.get_json()
-        except ValueError:
-            req_body = {}
-        user_id = req_body.get("user_id")
-
-    if not user_id:
-        return func.HttpResponse(
-            "Please pass a user_id on the query string or in the request body",
-            status_code=400,
-        )
-
     try:
-        # === 1. Télécharger les fichiers si nécessaire ===
-        os.makedirs(TMP_DIR, exist_ok=True)
+        user_id = req.params.get("user_id")
+        if not user_id:
+            try:
+                req_body = req.get_json()
+                user_id = req_body.get("user_id")
+            except Exception:
+                return func.HttpResponse(
+                    "Please pass a user_id on the query string or in the request body",
+                    status_code=400,
+                )
+
+        # Téléchargement modèles
         download_file(URL_CONTENT, CONTENT_PATH)
         download_file(URL_SURPRISE, SURPRISE_PATH)
 
-        # === 2. Charger les modèles ===
-        content_df = joblib.load(CONTENT_PATH)  # DataFrame
-        with open(SURPRISE_PATH, "rb") as f:
-            svd_model = pickle.load(f)  # objet SVD
+        # Chargement
+        content_df = joblib.load(CONTENT_PATH)
+        svd_model = pickle.load(open(SURPRISE_PATH, "rb"))
 
-        logging.info("✅ Modèles chargés depuis Azure Blob Storage")
-
-        # === 3. Content-based ===
+        # Content-based
         content_recs = (
             content_df[content_df["user_id"] == int(user_id)]
             .sort_values("similarity", ascending=False)
@@ -68,15 +52,12 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
             .reset_index(drop=True)
         )
 
-        # === 4. Collaborative (SVD.predict) ===
-        all_items = content_df["article_id"].unique()[:500]  # limiter pour perf
+        # Collaborative
+        all_items = content_df["article_id"].unique()[:200]
         predictions = []
         for iid in all_items:
-            try:
-                pred = svd_model.predict(int(user_id), int(iid))
-                predictions.append((iid, pred.est))
-            except Exception as ex:
-                logging.warning(f"skip item {iid}: {ex}")
+            pred = svd_model.predict(int(user_id), int(iid))
+            predictions.append((iid, pred.est))
 
         surprise_recs = (
             pd.DataFrame(predictions, columns=["article_id", "pred_score"])
@@ -85,20 +66,19 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
             .reset_index(drop=True)
         )
 
-        # === 5. Réponse JSON ===
         result = {
             "user_id": user_id,
             "content_based": content_recs.to_dict(orient="records"),
             "surprise": surprise_recs.to_dict(orient="records"),
         }
 
-        import json
         return func.HttpResponse(
             body=json.dumps(result),
             status_code=200,
-            mimetype="application/json",
+            mimetype="application/json"
         )
 
     except Exception as e:
-        logging.error(f"Erreur dans la Function: {e}")
-        return func.HttpResponse(f"Erreur interne: {e}", status_code=500)
+        # ⚡ renvoyer l'erreur complète au client HTTP
+        err_msg = f"🔥 Internal error: {str(e)}\n\n{traceback.format_exc()}"
+        return func.HttpResponse(err_msg, status_code=500)
