@@ -23,13 +23,15 @@ def download_file(url, dest_path):
     """Télécharger un fichier depuis un blob vers /tmp"""
     if not os.path.exists(dest_path):
         logging.info(f"Téléchargement du modèle depuis {url} ...")
-        resp = requests.get(url)
+        resp = requests.get(url, stream=True, timeout=30)
         resp.raise_for_status()
         with open(dest_path, "wb") as f:
-            f.write(resp.content)
+            for chunk in resp.iter_content(chunk_size=8192):
+                f.write(chunk)
         logging.info(f"✅ Fichier sauvegardé dans {dest_path}")
     else:
         logging.info(f"⚡ Fichier déjà en cache : {dest_path}")
+
 
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
@@ -57,9 +59,11 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
 
         # === 2. Charger les modèles ===
         content_df = joblib.load(CONTENT_PATH)  # DataFrame
-        svd_model = pickle.load(open(SURPRISE_PATH, "rb"))  # SVD
+        with open(SURPRISE_PATH, "rb") as f:
+        svd_model = pickle.load(f)  # SVD
 
         logging.info("✅ Modèles chargés depuis le blob")
+
 
         # === 3. Recommandations content-based ===
         content_recs = (

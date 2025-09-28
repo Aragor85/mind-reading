@@ -1,41 +1,124 @@
-deploy:
-  runs-on: ubuntu-latest
-  needs: build
-  permissions:
-    id-token: write   # important pour GitHub → Azure login
-    contents: read
+name: Build & Deploy (Ubuntu + Conda vendor + Logs) - mind-reading-func
 
-  steps:
-    - name: Download artifact
-      uses: actions/download-artifact@v4
-      with:
-        name: python-app
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
 
-    - name: Unzip artifact
-      run: unzip release.zip -d release
+env:
+  AZURE_FUNCTIONAPP_PACKAGE_PATH: '.'
+  PYTHON_VERSION: '3.10'
+  CONDA_ENV_NAME: 'mindenv'
 
-    - name: Login to Azure
-      uses: azure/login@v2
-      with:
-        client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_A18FFB99F74747918B8B1F61F9F5BC57 }}
-        tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_84AF985AA15B4F938C9F18812F55C45E }}
-        subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_CEB63CECFBEA4C768EBADE1D8D3AE52B }}
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
-    - name: Deploy to Azure Functions (zip)
-      uses: Azure/functions-action@v1
-      with:
-        app-name: 'mind-reading-func'
-        package: 'release'
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
-    - name: Test Function endpoint
-      run: |
-        echo "🚀 Testing deployed Azure Function..."
-        RESPONSE=$(curl -s -i "https://mind-reading-func.azurewebsites.net/api/recommend?user_id=1")
-        echo "------ Response ------"
-        echo "$RESPONSE"
-        STATUS=$(echo "$RESPONSE" | grep HTTP/ | tail -1 | awk '{print $2}')
-        if [ "$STATUS" -ne 200 ]; then
-          echo "❌ Function test failed (status $STATUS)"
-          exit 1
-        fi
-        echo "✅ Function test passed"
+      - name: Setup Miniconda (setup mamba)
+        uses: conda-incubator/setup-miniconda@v2
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          auto-activate-base: false
+
+      - name: Install mamba
+        run: conda install -n base -c conda-forge mamba -y
+
+      - name: Create conda env from environment.yml
+        run: |
+          mamba env create -f environment.yml -n ${{ env.CONDA_ENV_NAME }}
+          echo "✅ Conda environment created"
+
+      - name: Activate env and install pip-only packages
+        shell: bash -l {0}
+        run: |
+          source $(conda info --base)/etc/profile.d/conda.sh
+          conda activate ${{ env.CONDA_ENV_NAME }}
+          pip install --upgrade pip setuptools wheel
+          pip install azure-functions
+
+      - name: Vendor site-packages for Azure Functions
+        shell: bash -l {0}
+        run: |
+          source $(conda info --base)/etc/profile.d/conda.sh
+          conda activate ${{ env.CONDA_ENV_NAME }}
+          PY_SITE=$(python -c "import site; print(site.getsitepackages()[0])")
+          mkdir -p .python_packages/lib/site-packages
+          rsync -a --exclude='__pycache__' "$PY_SITE/" .python_packages/lib/site-packages/
+          echo "✅ Vendored Python packages"
+
+      - name: Prepare host.json
+        run: |
+          test -f host.json || echo '{"version":"2.0"}' > host.json
+
+      - name: Zip artifact including .python_packages
+        run: zip -r release.zip . -x "venv/*" ".git/*" ".github/*" "__pycache__/*"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-app
+          path: release.zip
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: python-app
+
+      - name: Unzip artifact
+        run: |
+          unzip release.zip -d release
+          ls -la release | head -n 20
+
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_A18FFB99F74747918B8B1F61F9F5BC57 }}
+          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_84AF985AA15B4F938C9F18812F55C45E }}
+          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_CEB63CECFBEA4C768EBADE1D8D3AE52B }}
+
+      - name: Deploy to Azure Functions (zip)
+        uses: Azure/functions-action@v1
+        with:
+          app-name: 'mind-reading-func'
+          package: 'release'
+
+      - name: Stream Function App logs (60s)
+        if: always()
+        uses: azure/CLI@v1
+        with:
+          inlineScript: |
+            echo "📡 Streaming logs for 60s..."
+            az functionapp log stream \
+              --name mind-reading-func \
+              --resource-group mind-reading-rg \
+              --subscription eb9d2d7a-5726-4c73-9b94-9eb4cf6281b6 &
+            PID=$!
+            sleep 60
+            kill $PID || true
+
+
+      - name: Test Function endpoint
+        run: |
+          echo "🚀 Testing deployed Azure Function..."
+          RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}\n" "https://mind-reading-func.azurewebsites.net/api/recommend?user_id=1")
+          echo "$RESPONSE"
+          STATUS=$(echo "$RESPONSE" | grep HTTP_STATUS | cut -d: -f2)
+          if [ "$STATUS" -ne 200 ]; then
+            echo "❌ Function test failed (status $STATUS)"
+            exit 1
+          fi
+          echo "✅ Function test passed"
