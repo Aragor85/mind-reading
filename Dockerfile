@@ -7,12 +7,18 @@ WORKDIR /build
 RUN conda update -n base -c defaults conda -y && \
     conda install -y -c conda-forge mamba
 
-# créer un env conda contenant scikit-surprise + numpy compatible + pandas + requests + joblib
+# créer env conda avec python=3.10 + packages binaires
 RUN mamba create -y -n appenv python=3.10 \
-    scikit-surprise=1.1.3 numpy=1.23.5 pandas=2.1.1 joblib requests azure-functions
+    numpy=1.23.5 pandas=2.1.1 joblib requests azure-functions
 
-# activer l'env et collecter site-packages
+# activer l'env et installer scikit-surprise via pip
 SHELL ["bash", "-lc"]
+RUN source /opt/conda/etc/profile.d/conda.sh && \
+    conda activate appenv && \
+    python -m pip install --upgrade pip setuptools wheel && \
+    python -m pip install scikit-surprise==1.1.3
+
+# collecter site-packages
 RUN source /opt/conda/etc/profile.d/conda.sh && \
     conda activate appenv && \
     SITE_PACKAGES=$(python -c "import site; print(site.getsitepackages()[0])") && \
@@ -39,5 +45,3 @@ RUN python -m pip install --upgrade pip setuptools wheel && \
 
 # copier le code de la Function
 COPY . /home/site/wwwroot
-
-# l'expose/entrypoint est géré par l'image Azure Functions
