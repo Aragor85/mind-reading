@@ -8,7 +8,6 @@ on:
 env:
   AZURE_FUNCTIONAPP_NAME: 'mind-reading-func'
   AZURE_CONTAINER_REGISTRY: 'mindreading.azurecr.io'
-  ACR_NAME: 'mindreading'
   IMAGE_NAME: 'mind-reading-func'
   TAG: 'latest'
 
@@ -22,18 +21,18 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      # Login to Azure with OIDC
+      # Login to Azure
       - name: Azure login
         uses: azure/login@v2
         with:
-          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_A18FFB99F74747918B8B1F61F9F5BC57 }}
-          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_84AF985AA15B4F938C9F18812F55C45E }}
-          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_CEB63CECFBEA4C768EBADE1D8D3AE52B }}
+          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID }}
+          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID }}
+          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID }}
 
-      # Docker login using ACR secrets
-      - name: Docker login to ACR
+      # Login to ACR
+      - name: Azure Container Registry login
         run: |
-          echo "${{ secrets.ACR_PASSWORD }}" | docker login $AZURE_CONTAINER_REGISTRY -u "${{ secrets.ACR_USERNAME }}" --password-stdin
+          echo ${{ secrets.ACR_PASSWORD }} | docker login ${{ env.AZURE_CONTAINER_REGISTRY }} --username ${{ secrets.ACR_USERNAME }} --password-stdin
 
       # Build and push Docker image
       - name: Build and push image
@@ -41,7 +40,7 @@ jobs:
           docker build -t $AZURE_CONTAINER_REGISTRY/$IMAGE_NAME:$TAG .
           docker push $AZURE_CONTAINER_REGISTRY/$IMAGE_NAME:$TAG
 
-      # Deploy Function App with the new container
+      # Deploy Function App with container
       - name: Deploy to Azure Functions
         run: |
           az functionapp update \
