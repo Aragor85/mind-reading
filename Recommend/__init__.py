@@ -99,29 +99,29 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         logging.info(f"content-based recommendations:\n{content_recs}")
 
         # === 4. Recommandations collaborative (Surprise) ===
-        logging.info(f"Génération recommandations collaborative pour user_id={user_id}")
-        all_items = content_df["article_id"].unique()[:200]
-        predictions = []
-        for iid in all_items:
-            try:
-                pred = svd_model.predict(int(user_id), int(iid))
-                predictions.append((iid, pred.est))
-            except Exception as e_pred:
-                logging.error(f"Erreur prediction item {iid}: {e_pred}")
+        #logging.info(f"Génération recommandations collaborative pour user_id={user_id}")
+        #all_items = content_df["article_id"].unique()[:200]
+        #predictions = []
+        #for iid in all_items:
+        #    try:
+        #        pred = svd_model.predict(int(user_id), int(iid))
+        #        predictions.append((iid, pred.est))
+        #    except Exception as e_pred:
+        #        logging.error(f"Erreur prediction item {iid}: {e_pred}")
 
-        surprise_recs = (
-            pd.DataFrame(predictions, columns=["article_id", "pred_score"])
-            .sort_values("pred_score", ascending=False)
-            .head(5)
-            .reset_index(drop=True)
-        )
-        logging.info(f"surprise recommendations:\n{surprise_recs}")
+        #surprise_recs = (
+        #    pd.DataFrame(predictions, columns=["article_id", "pred_score"])
+        #    .sort_values("pred_score", ascending=False)
+        #    .head(5)
+        #    .reset_index(drop=True)
+        #)
+        #logging.info(f"surprise recommendations:\n{surprise_recs}")
 
         # === 5. Réponse JSON ===
         result = {
             "user_id": user_id,
             "content_based": content_recs.to_dict(orient="records"),
-            "surprise": surprise_recs.to_dict(orient="records"),
+        #    "surprise": surprise_recs.to_dict(orient="records"),
         }
 
         logging.info("Réponse générée avec succès ✅")
