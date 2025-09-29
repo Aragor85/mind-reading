@@ -25,9 +25,10 @@ jobs:
       - name: Azure login
         uses: azure/login@v2
         with:
-		  client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_A18FFB99F74747918B8B1F61F9F5BC57 }}
+          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_A18FFB99F74747918B8B1F61F9F5BC57 }}
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_84AF985AA15B4F938C9F18812F55C45E }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_CEB63CECFBEA4C768EBADE1D8D3AE52B }}
+          
       - name: Login to ACR (docker)
         run: |
           echo "${{ secrets.ACR_PASSWORD }}" | docker login ${{ env.AZURE_CONTAINER_REGISTRY }} --username "${{ secrets.ACR_USERNAME }}" --password-stdin
