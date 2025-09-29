@@ -1,4 +1,4 @@
-name: Build & Deploy (Ubuntu + Conda vendor + Logs) - mind-reading-func
+name: Build & Deploy FunctionApp with Docker
 
 on:
   push:
@@ -6,109 +6,49 @@ on:
   workflow_dispatch:
 
 env:
-  AZURE_FUNCTIONAPP_PACKAGE_PATH: '.'
-  PYTHON_VERSION: '3.10'
-  CONDA_ENV_NAME: 'mindenv'
+  AZURE_FUNCTIONAPP_NAME: 'mind-reading-func'
+  AZURE_CONTAINER_REGISTRY: 'voitureautonome.azurecr.io'   # ton ACR
+  IMAGE_NAME: 'mind-reading-func'
+  TAG: 'latest'
 
 jobs:
-  build:
+  build-and-deploy:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Setup Miniconda (setup mamba)
-        uses: conda-incubator/setup-miniconda@v2
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          auto-activate-base: false
-
-      - name: Install mamba
-        run: conda install -n base -c conda-forge mamba -y
-
-      - name: Create conda env from environment.yml
-        run: |
-          mamba env create -f environment.yml -n ${{ env.CONDA_ENV_NAME }}
-          echo "✅ Conda environment created"
-
-      - name: Activate env and install pip-only packages
-        shell: bash -l {0}
-        run: |
-          source $(conda info --base)/etc/profile.d/conda.sh
-          conda activate ${{ env.CONDA_ENV_NAME }}
-          python -m pip install --upgrade pip setuptools wheel
-          # Installe toutes les dépendances listées dans requirements.txt
-          if [ -f requirements.txt ]; then
-            python -m pip install --no-cache-dir -r requirements.txt
-          else
-            # fallback minimal
-            python -m pip install --no-cache-dir azure-functions requests pandas numpy joblib
-          fi
-
-      - name: Vendor site-packages for Azure Functions
-        shell: bash -l {0}
-        run: |
-          source $(conda info --base)/etc/profile.d/conda.sh
-          conda activate ${{ env.CONDA_ENV_NAME }}
-          # Trouver le site-packages du Python actif
-          PY_SITE=$(python -c "import site,sys; print(site.getsitepackages()[0])")
-          echo "Using PY_SITE=$PY_SITE"
-          mkdir -p .python_packages/lib/site-packages
-          # Copier les paquets installés dans le dossier attendu par Azure Functions
-          rsync -a --exclude='__pycache__' --exclude='*.dist-info' "$PY_SITE/" .python_packages/lib/site-packages/
-          echo "✅ Vendored Python packages into .python_packages/lib/site-packages"
-
-      - name: Prepare host.json
-        run: |
-          test -f host.json || echo '{"version":"2.0"}' > host.json
-
-      - name: Zip artifact including .python_packages
-        run: zip -r release.zip . -x "venv/*" ".git/*" ".github/*" "__pycache__/*"
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: python-app
-          path: release.zip
-
-  deploy:
-    runs-on: ubuntu-latest
-    needs: build
-    permissions:
-      id-token: write
-      contents: read
-
-    steps:
-      - name: Download artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: python-app
-
-      - name: Unzip artifact
-        run: |
-          unzip release.zip -d release
-          ls -la release | head -n 20
-
-      - name: Login to Azure
+      # Login to Azure
+      - name: Azure login
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_A18FFB99F74747918B8B1F61F9F5BC57 }}
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_84AF985AA15B4F938C9F18812F55C45E }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_CEB63CECFBEA4C768EBADE1D8D3AE52B }}
 
-      - name: Deploy to Azure Functions (zip)
-        uses: Azure/functions-action@v1
-        with:
-          app-name: 'mind-reading-func'
-          package: 'release' 
+      # Login to ACR
+      - name: Azure Container Registry login
+        run: az acr login --name voitureautonome
 
+      # Build and push Docker image
+      - name: Build and push image
+        run: |
+          docker build -t $AZURE_CONTAINER_REGISTRY/$IMAGE_NAME:$TAG .
+          docker push $AZURE_CONTAINER_REGISTRY/$IMAGE_NAME:$TAG
+
+      # Deploy Function App with the new container
+      - name: Deploy to Azure Functions
+        run: |
+          az functionapp update \
+            --name $AZURE_FUNCTIONAPP_NAME \
+            --resource-group voiture_autonome \
+            --set containerImage=$AZURE_CONTAINER_REGISTRY/$IMAGE_NAME:$TAG
+
+      # Test Function endpoint
       - name: Test Function endpoint
         run: |
           echo "🚀 Testing deployed Azure Function..."
-          RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}\n" "https://mind-reading-func.azurewebsites.net/api/recommend?user_id=1")
+          RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}\n" "https://${{ env.AZURE_FUNCTIONAPP_NAME }}.azurewebsites.net/api/recommend?user_id=1")
           echo "$RESPONSE"
           BODY=$(echo "$RESPONSE" | sed '/HTTP_STATUS/d')
           STATUS=$(echo "$RESPONSE" | grep HTTP_STATUS | cut -d: -f2)
