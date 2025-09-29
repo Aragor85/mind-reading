@@ -10,6 +10,7 @@ env:
   AZURE_CONTAINER_REGISTRY: 'mindreading.azurecr.io'
   IMAGE_NAME: 'mind-reading-func'
   TAG: 'latest'
+  RESOURCE_GROUP: 'mind-reading-rg'
 
 jobs:
   build-and-deploy:
@@ -21,33 +22,32 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      # Login to Azure
       - name: Azure login
         uses: azure/login@v2
-        with:          
-          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_A18FFB99F74747918B8B1F61F9F5BC57 }}
+        with:
+		  client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_A18FFB99F74747918B8B1F61F9F5BC57 }}
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_84AF985AA15B4F938C9F18812F55C45E }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_CEB63CECFBEA4C768EBADE1D8D3AE52B }}
-      # Login to ACR
-      - name: Azure Container Registry login
+      - name: Login to ACR (docker)
         run: |
-          echo ${{ secrets.ACR_PASSWORD }} | docker login ${{ env.AZURE_CONTAINER_REGISTRY }} --username ${{ secrets.ACR_USERNAME }} --password-stdin
+          echo "${{ secrets.ACR_PASSWORD }}" | docker login ${{ env.AZURE_CONTAINER_REGISTRY }} --username "${{ secrets.ACR_USERNAME }}" --password-stdin
 
-      # Build and push Docker image
       - name: Build and push image
         run: |
           docker build -t $AZURE_CONTAINER_REGISTRY/$IMAGE_NAME:$TAG .
           docker push $AZURE_CONTAINER_REGISTRY/$IMAGE_NAME:$TAG
 
-      # Deploy Function App with container
-      - name: Deploy to Azure Functions
+      - name: Deploy to Azure Functions (set container)
         run: |
-          az functionapp update \
+          az functionapp config container set \
             --name $AZURE_FUNCTIONAPP_NAME \
-            --resource-group mind-reading-rg \
-            --set containerImage=$AZURE_CONTAINER_REGISTRY/$IMAGE_NAME:$TAG
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --docker-custom-image-name $AZURE_CONTAINER_REGISTRY/$IMAGE_NAME:$TAG
 
-      # Test Function endpoint
+      - name: Restart FunctionApp
+        run: |
+          az functionapp restart --name $AZURE_FUNCTIONAPP_NAME --resource-group ${{ env.RESOURCE_GROUP }}
+
       - name: Test Function endpoint
         run: |
           echo "🚀 Testing deployed Azure Function..."
