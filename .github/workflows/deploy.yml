@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 env:
-  AZURE_FUNCTIONAPP_NAME: mind-reading-func         # Nom de ta Function App
+  AZURE_FUNCTIONAPP_NAME: mind-reading-func         # Nom de la Function App
   RESOURCE_GROUP: mind-reading-rg                  # Nom du resource group
   AZURE_CONTAINER_REGISTRY: mindreading.azurecr.io # Nom de ton ACR
   IMAGE_NAME: mindreading                          # Nom de l'image
@@ -48,9 +48,9 @@ jobs:
           --name $AZURE_FUNCTIONAPP_NAME \
           --resource-group $RESOURCE_GROUP \
           --image $AZURE_CONTAINER_REGISTRY/$IMAGE_NAME:$TAG \
-          --docker-registry-server-url https://$AZURE_CONTAINER_REGISTRY \
-          --docker-registry-server-user "${{ secrets.ACR_USERNAME }}" \
-          --docker-registry-server-password "${{ secrets.ACR_PASSWORD }}"
+          --registry-server $AZURE_CONTAINER_REGISTRY \
+          --registry-username "${{ secrets.ACR_USERNAME }}" \
+          --registry-password "${{ secrets.ACR_PASSWORD }}"
 
     - name: Restart Function App
       run: |
