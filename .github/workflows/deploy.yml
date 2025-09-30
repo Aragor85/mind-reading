@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 env:
-  AZURE_FUNCTIONAPP_NAME: mind-reading-func         # Nom de la Function App
+  AZURE_FUNCTIONAPP_NAME: mind-reading-func         # Nom de la Function Application
   RESOURCE_GROUP: mind-reading-rg                  # Nom du resource group
   AZURE_CONTAINER_REGISTRY: mindreading.azurecr.io # Nom de ton ACR
   IMAGE_NAME: mindreading                          # Nom de l'image
