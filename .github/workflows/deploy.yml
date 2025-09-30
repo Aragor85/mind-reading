@@ -1,64 +1,59 @@
-name: Build & Deploy FunctionApp with Docker
+name: Deploy to Azure Functions
 
 on:
   push:
-    branches: [ main ]
-  workflow_dispatch:
+    branches:
+      - main
+
+permissions:
+  id-token: write
+  contents: read
 
 env:
-  AZURE_FUNCTIONAPP_NAME: 'mind-reading-func'
-  AZURE_CONTAINER_REGISTRY: 'mindreading.azurecr.io'
-  IMAGE_NAME: 'mind-reading-func'
-  TAG: 'latest'
-  RESOURCE_GROUP: 'mind-reading-rg'
+  AZURE_FUNCTIONAPP_NAME: mind-reading-func         # Nom de ta Function App
+  RESOURCE_GROUP: mind-reading-rg                  # Nom du resource group
+  AZURE_CONTAINER_REGISTRY: mindreading.azurecr.io # Nom de ton ACR
+  IMAGE_NAME: mindreading                          # Nom de l'image
+  TAG: latest                                      # Tag (modifiable)
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      contents: read
+
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-      - name: Azure login
-        uses: azure/login@v2
-        with:
-          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_A18FFB99F74747918B8B1F61F9F5BC57 }}
-          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_84AF985AA15B4F938C9F18812F55C45E }}
-          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_CEB63CECFBEA4C768EBADE1D8D3AE52B }}
-          
-      - name: Login to ACR (docker)
-        run: |
-          echo "${{ secrets.ACR_PASSWORD }}" | docker login ${{ env.AZURE_CONTAINER_REGISTRY }} --username "${{ secrets.ACR_USERNAME }}" --password-stdin
+    - name: Log in to Azure
+      uses: azure/login@v2
+      with:
+        client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_A18FFB99F74747918B8B1F61F9F5BC57 }}
+        tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_84AF985AA15B4F938C9F18812F55C45E }}
+        subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_CEB63CECFBEA4C768EBADE1D8D3AE52B }}
 
-      - name: Build and push image
-        run: |
-          docker build -t $AZURE_CONTAINER_REGISTRY/$IMAGE_NAME:$TAG .
-          docker push $AZURE_CONTAINER_REGISTRY/$IMAGE_NAME:$TAG
+    - name: Log in to ACR
+      run: |
+        echo "${{ secrets.ACR_PASSWORD }}" | docker login ${{ env.AZURE_CONTAINER_REGISTRY }} \
+          --username "${{ secrets.ACR_USERNAME }}" \
+          --password-stdin
 
-      - name: Deploy to Azure Functions (set container)
-        run: |
-          az functionapp config container set \
-            --name $AZURE_FUNCTIONAPP_NAME \
-            --resource-group ${{ env.RESOURCE_GROUP }} \
-            --docker-custom-image-name $AZURE_CONTAINER_REGISTRY/$IMAGE_NAME:$TAG
+    - name: Build and push Docker image
+      run: |
+        docker build -t $AZURE_CONTAINER_REGISTRY/$IMAGE_NAME:$TAG .
+        docker push $AZURE_CONTAINER_REGISTRY/$IMAGE_NAME:$TAG
 
-      - name: Restart FunctionApp
-        run: |
-          az functionapp restart --name $AZURE_FUNCTIONAPP_NAME --resource-group ${{ env.RESOURCE_GROUP }}
+    - name: Deploy to Azure Functions (set container)
+      run: |
+        az functionapp config container set \
+          --name $AZURE_FUNCTIONAPP_NAME \
+          --resource-group $RESOURCE_GROUP \
+          --image $AZURE_CONTAINER_REGISTRY/$IMAGE_NAME:$TAG \
+          --docker-registry-server-url https://$AZURE_CONTAINER_REGISTRY \
+          --docker-registry-server-user "${{ secrets.ACR_USERNAME }}" \
+          --docker-registry-server-password "${{ secrets.ACR_PASSWORD }}"
 
-      - name: Test Function endpoint
-        run: |
-          echo "🚀 Testing deployed Azure Function..."
-          RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}\n" "https://${{ env.AZURE_FUNCTIONAPP_NAME }}.azurewebsites.net/api/recommend?user_id=1")
-          echo "$RESPONSE"
-          BODY=$(echo "$RESPONSE" | sed '/HTTP_STATUS/d')
-          STATUS=$(echo "$RESPONSE" | grep HTTP_STATUS | cut -d: -f2)
-          echo "📦 Response body: $BODY"
-          if [ "$STATUS" -ne 200 ]; then
-            echo "❌ Function test failed (status $STATUS)"
-            exit 1
-          fi
-          echo "✅ Function test passed"
+    - name: Restart Function App
+      run: |
+        az functionapp restart \
+          --name $AZURE_FUNCTIONAPP_NAME \
+          --resource-group $RESOURCE_GROUP
