@@ -17,7 +17,8 @@ if st.button("Recommander"):
             payload = {"user_id": user_id, "top_n": 5}
             headers = {"Content-Type": "application/json"}
 
-            resp = requests.post(API_URL, json=payload, headers=headers, timeout=15)
+            resp = requests.post(API_URL,json={"user_id": user_id, "top_n": 5},headers={"Content-Type": "application/json"},timeout=15)
+
             if resp.status_code == 200:
                 data = resp.json()
                 st.success("✅ Recommandations Content-Based reçues depuis Azure !")
