@@ -75,22 +75,14 @@ jobs:
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_84AF985AA15B4F938C9F18812F55C45E }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_CEB63CECFBEA4C768EBADE1D8D3AE52B }}
 
-      - name: Set up Node (needed for func CLI)
-        uses: actions/setup-node@v4
-        with:
-          node-version: '18'
-
-      - name: Install Azure Functions Core Tools (v4)
-        run: |
-          npm install -g azure-functions-core-tools@4 --unsafe-perm true
-
-      - name: Install Python dependencies for Azure Function
+      - name: Prepare Function App package
         run: |
           cd Recommend
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt --target="./.python_packages/lib/site-packages"
+          zip -r ../functionapp.zip .
 
-      - name: Deploy Azure Function (Python)
+      - name: Deploy Azure Function (via Zip Deploy)
         run: |
-          cd Recommend
-          func azure functionapp publish ${{ env.AZURE_FUNCTION_NAME }} --python --force
+          az functionapp deployment source config-zip \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --name ${{ env.AZURE_FUNCTION_NAME }} \
+            --src functionapp.zip
