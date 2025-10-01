@@ -81,4 +81,4 @@ jobs:
 
       - name: Deploy Azure Function (Python)
         run: |
-          func azure functionapp publish ${{ env.AZURE_FUNCTION_NAME }} --python --no-build --force
+          func azure functionapp publish ${{ env.AZURE_FUNCTION_NAME }} --python --force
