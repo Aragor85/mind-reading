@@ -77,8 +77,7 @@ jobs:
 
       - name: Prepare Function App package
         run: |
-          cd Recommend
-          zip -r ../functionapp.zip .
+          zip -r functionapp.zip host.json requirements.txt Recommend
 
       - name: Deploy Azure Function (via Zip Deploy)
         run: |
