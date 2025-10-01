@@ -70,7 +70,7 @@ jobs:
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_84AF985AA15B4F938C9F18812F55C45E }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_CEB63CECFBEA4C768EBADE1D8D3AE52B }}
 
-      - name: Set up Node (needed to install func tools)
+      - name: Set up Node (needed for func CLI)
         uses: actions/setup-node@v4
         with:
           node-version: '18'
@@ -80,7 +80,5 @@ jobs:
           npm install -g azure-functions-core-tools@4 --unsafe-perm true
 
       - name: Deploy Azure Function (Python)
-        env:
-          AZURE_FUNCTIONAPP_NAME: ${{ env.AZURE_FUNCTION_NAME }}
         run: |
-          func azure functionapp publish ${{ env.AZURE_FUNCTION_NAME }} --python --no-build
+          func azure functionapp publish ${{ env.AZURE_FUNCTION_NAME }} --python --no-build --force
