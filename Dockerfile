@@ -16,9 +16,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copier tout le code de l'app
 COPY . .
 
-# Streamlit server config
-ENV PORT=8501
-EXPOSE 8501
+# Azure définit automatiquement la variable d'env PORT (par défaut 8000)
+ENV PORT=8000
+EXPOSE 8000
 
-# Commande pour lancer Streamlit
-CMD ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0", "--server.enableCORS=false", "--server.baseUrlPath=/"]
+# Lancer Streamlit en utilisant la variable PORT
+CMD ["sh", "-c", "streamlit run app.py --server.port=$PORT --server.address=0.0.0.0 --server.enableCORS=false"]
