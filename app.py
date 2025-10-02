@@ -4,17 +4,17 @@ import requests
 import pandas as pd
 
 st.set_page_config(page_title="🧠 Mind Reading Recommender", layout="wide")
-st.title("🧠 Mind Reading Recommender (Azure)")
+st.title("🧠 Mind Reading Recommender content_based")
 
 API_URL = os.environ.get("AZURE_FUNCTION_URL", "https://mind-reading-func.azurewebsites.net/api/recommend")
 FUNCTION_KEY = os.environ.get("AZURE_FUNCTION_KEY")  # à définir dans Container App
 
-if not FUNCTION_KEY:
-    st.warning("⚠️ AZURE_FUNCTION_KEY n'est pas défini dans les variables d'environnement. L'API peut refuser la requête.")
+#if not FUNCTION_KEY:
+#    st.warning("⚠️ AZURE_FUNCTION_KEY est enreistrée dans portal azure")
 
 with st.form("req_form"):
     user_id_input = st.text_input("Entrez votre user_id :")
-    top_n = st.number_input("Top N", min_value=1, max_value=20, value=5, step=1)
+    top_n = st.number_input("Top N", min_value=1, max_value=5, value=5, step=1)
     submit = st.form_submit_button("Recommander")
 
 if submit:
