@@ -22,13 +22,20 @@ def make_error_response(msg, details=None, status_code=500):
 
 
 def _safe_load(path):
+    """Charger un modèle avec joblib si dispo, sinon fallback vers pickle."""
     try:
-        import joblib
-        return joblib.load(path)
-    except Exception:
-        import pickle
-        with open(path, "rb") as f:
-            return pickle.load(f)
+        try:
+            import joblib
+            logging.info(f"Chargement avec joblib: {path}")
+            return joblib.load(path)
+        except ImportError:
+            logging.warning("Joblib non disponible, fallback vers pickle")
+            import pickle
+            with open(path, "rb") as f:
+                return pickle.load(f)
+    except Exception as e:
+        logging.error(f"Erreur lors du chargement du modèle {path} : {e}")
+        raise
 
 
 def _get_recs_from_df(df, user_id, top_n, score_col="similarity"):
@@ -85,6 +92,7 @@ def _get_surprise_recs(obj, user_id, top_n):
             item_raw_ids = [obj.trainset.to_raw_iid(i) for i in range(obj.trainset.n_items)]
             return _predict_topn_with_surprise_model(obj, item_raw_ids, user_id, top_n, raw=True)
         except Exception:
+            logging.exception("Erreur lors de la génération de recs avec Surprise")
             pass
 
     return []
@@ -118,11 +126,13 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
 
     # Charger Content-Based
     try:
+        logging.info("Téléchargement du modèle Content-Based depuis Blob...")
         tmp_content = os.path.join(tempfile.gettempdir(), "content.pkl")
         resp = requests.get(URL_CONTENT, stream=True, timeout=60)
         with open(tmp_content, "wb") as f:
             for chunk in resp.iter_content(8192):
                 f.write(chunk)
+        logging.info("Chargement du modèle Content-Based terminé.")
         df_content = _safe_load(tmp_content)
         recs_content = _get_recs_from_df(df_content, user_id, top_n, score_col="similarity")
     except Exception as e:
@@ -130,11 +140,13 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
 
     # Charger Surprise
     try:
+        logging.info("Téléchargement du modèle Surprise SVD depuis Blob...")
         tmp_surprise = os.path.join(tempfile.gettempdir(), "surprise.pkl")
         resp = requests.get(URL_SURPRISE, stream=True, timeout=60)
         with open(tmp_surprise, "wb") as f:
             for chunk in resp.iter_content(8192):
                 f.write(chunk)
+        logging.info("Chargement du modèle Surprise terminé.")
         obj_surprise = _safe_load(tmp_surprise)
         recs_surprise = _get_surprise_recs(obj_surprise, user_id, top_n)
     except Exception as e:
