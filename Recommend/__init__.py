@@ -2,7 +2,6 @@ import logging
 import os
 import json
 import tempfile
-import traceback
 import azure.functions as func
 
 URL_CONTENT = "https://mindreadingstorage.blob.core.windows.net/similaritycosinussurembeddingspca40/recommendations_vectorized.pkl"
@@ -10,15 +9,17 @@ URL_SURPRISE = "https://mindreadingstorage.blob.core.windows.net/surprisesvdmode
 
 DEFAULT_TOP_N = int(os.environ.get("TOP_N", 5))
 
+
 def make_error_response(msg, details=None, status_code=500):
     payload = {"status": "error", "message": msg}
-    if details is not None:
+    if details:
         payload["details"] = details
     return func.HttpResponse(
         body=json.dumps(payload, ensure_ascii=False),
         status_code=status_code,
         mimetype="application/json"
     )
+
 
 def _safe_load(path):
     try:
@@ -29,7 +30,9 @@ def _safe_load(path):
         with open(path, "rb") as f:
             return pickle.load(f)
 
+
 def _get_recs_from_df(df, user_id, top_n, score_col="similarity"):
+    """Filtrer un DataFrame (content-based)."""
     try:
         if "user_id" in df.columns:
             try:
@@ -45,6 +48,47 @@ def _get_recs_from_df(df, user_id, top_n, score_col="similarity"):
     except Exception:
         logging.exception("Erreur dans _get_recs_from_df")
     return []
+
+
+def _predict_topn_with_surprise_model(model, item_list, user_id, top_n, raw=False):
+    """Top-N predictions avec Surprise model."""
+    preds = []
+    uid = str(user_id)
+    for item in item_list:
+        try:
+            iid = str(item)
+            r = model.predict(uid, iid)
+            est = getattr(r, "est", None)
+            if est is not None:
+                preds.append((iid, float(est)))
+        except Exception:
+            continue
+    preds.sort(key=lambda x: x[1], reverse=True)
+    return [{"article_id": iid, "estimated_rating": est} for iid, est in preds[:top_n]]
+
+
+def _get_surprise_recs(obj, user_id, top_n):
+    """Détecter et générer des recs avec un modèle Surprise."""
+    # dict avec recs déjà calculées
+    if isinstance(obj, dict) and "recommendations" in obj:
+        return obj["recommendations"][:top_n]
+
+    # dict avec model + items
+    if isinstance(obj, dict) and "model" in obj:
+        model = obj["model"]
+        items = obj.get("items") or obj.get("all_items") or []
+        return _predict_topn_with_surprise_model(model, items, user_id, top_n)
+
+    # modèle surprise direct
+    if hasattr(obj, "trainset"):
+        try:
+            item_raw_ids = [obj.trainset.to_raw_iid(i) for i in range(obj.trainset.n_items)]
+            return _predict_topn_with_surprise_model(obj, item_raw_ids, user_id, top_n, raw=True)
+        except Exception:
+            pass
+
+    return []
+
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
     logging.info("Function Recommend triggered")
@@ -70,9 +114,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     if not user_id:
         return make_error_response("Paramètre user_id manquant", status_code=400)
 
-    # --- Résultats pour les 2 modèles ---
-    recs_content = []
-    recs_surprise = []
+    recs_content, recs_surprise = [], []
 
     # Charger Content-Based
     try:
@@ -86,19 +128,18 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     except Exception as e:
         logging.error(f"Erreur Content: {e}")
 
-    # Charger Surprise SVD
+    # Charger Surprise
     try:
         tmp_surprise = os.path.join(tempfile.gettempdir(), "surprise.pkl")
         resp = requests.get(URL_SURPRISE, stream=True, timeout=60)
         with open(tmp_surprise, "wb") as f:
             for chunk in resp.iter_content(8192):
                 f.write(chunk)
-        df_surprise = _safe_load(tmp_surprise)
-        recs_surprise = _get_recs_from_df(df_surprise, user_id, top_n, score_col="est")
+        obj_surprise = _safe_load(tmp_surprise)
+        recs_surprise = _get_surprise_recs(obj_surprise, user_id, top_n)
     except Exception as e:
         logging.error(f"Erreur Surprise: {e}")
 
-    # --- Réponse finale ---
     payload = {
         "status": "ok",
         "user_id": user_id,
